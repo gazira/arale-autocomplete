@@ -52,7 +52,7 @@ var AutoComplete = Overlay.extend({
     template: template,
     footer: '',
     header: '',
-    html: '{{{label}}}',
+    html: '',
     // 以下仅为组件使用
     selectedIndex: null,
     data: []
@@ -69,15 +69,6 @@ var AutoComplete = Overlay.extend({
     // 将匹配的高亮文字加上 hl 的样式
     highlightItem: highlightItem,
     include: include
-  },
-
-  parseElement: function () {
-    var that = this;
-    this.templatePartials || (this.templatePartials = {});
-    $.each(['header', 'footer', 'html'], function (index, item) {
-      that.templatePartials[item] = that.get(item);
-    });
-    AutoComplete.superclass.parseElement.call(this);
   },
 
   setup: function () {
@@ -161,26 +152,52 @@ var AutoComplete = Overlay.extend({
 
   // 通过数据渲染模板
   _onRenderData: function (data) {
-    data || (data = []);
+    if (this.rendered) {
+      data || (data = []);
+      var header = this.get('header');
+      header = $.isFunction(header) ? header.call(this, data) : header;
+      var footer = this.get('footer');
+      footer = $.isFunction(footer) ? footer.call(this, data) : footer;
+      var html = this.get('html');
+      var flag = $.isFunction(html);
+      var body = $.map(data, function (v) {
+          return flag ? html(v.label, v) : v.label;
+      });
+      // 渲染下拉
+      this.set('model', {
+        items: data,
+        query: this.input.get('query'),
+        length: data.length,
+        header: header,
+        body: body,
+        footer: footer
+      });
 
-    // 渲染下拉
-    this.set('model', {
-      items: data,
-      query: this.input.get('query'),
-      length: data.length
-    });
+      this.renderPartial();
 
-    this.renderPartial();
+      // 初始化下拉的状态
+      this.items = this.$('[data-role=items]').children();
 
-    // 初始化下拉的状态
-    this.items = this.$('[data-role=items]').children();
+      if (this.get('selectFirst')) {
+          this.set('selectedIndex', 0);
+      }
 
-    if (this.get('selectFirst')) {
-      this.set('selectedIndex', 0);
+      // 选中后会修改 input 的值并触发下一次渲染，但第二次渲染的结果不应该显示出来。
+      this._isOpen && this.show();
     }
-
-    // 选中后会修改 input 的值并触发下一次渲染，但第二次渲染的结果不应该显示出来。
-    this._isOpen && this.show();
+  },
+  // 输入为空时触发
+  _checkEmptyInput: function() {
+    if(!$.trim($(this.get('trigger')).val())) {
+      if($.isFunction(this.get('emptyAction'))) {
+        var that = this;
+        this.get('emptyAction').call(this, function(data) {
+          that.set('data', normalize(data));
+        });
+      } else {
+        this._hide();
+      }
+    }
   },
 
   // 键盘控制上下移动
@@ -260,6 +277,7 @@ var AutoComplete = Overlay.extend({
 
   _handleFocus: function () {
     this._isOpen = true;
+    this._checkEmptyInput();
   },
 
   _handleMouseMove: function (e) {
@@ -292,9 +310,13 @@ var AutoComplete = Overlay.extend({
 
   _handleQueryChange: function (val, prev) {
     if (this.get('disabled')) return;
-
     this.dataSource.abort();
-    this.dataSource.getData(val);
+    this.set('selectedIndex', -1);
+    if($.trim(val)) {
+      this.dataSource.getData(val);
+    } else {
+      this._checkEmptyInput();
+    }
   },
 
   // 选项上下移动
@@ -324,6 +346,7 @@ var AutoComplete = Overlay.extend({
 
   _hide: function () {
     this._isOpen = false;
+    this.set('data', null);
     AutoComplete.superclass.hide.call(this);
   },
 
